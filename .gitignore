@@ -1,0 +1,4 @@
+*.raw
+*.pgm
+*.bak
+__pycache__/
