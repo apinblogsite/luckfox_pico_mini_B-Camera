@@ -25,6 +25,8 @@ belum di-demosaic — normal untuk data mentah langsung dari CIF tanpa pemrosesa
 | Tangkap frame 640×480 | ✅ 491.520 byte (CMA bawaan) |
 | Tangkap frame 1280×720 | ✅ dengan `rk_dma_heap_cma=16M` |
 | Tangkap frame 2304×1296 | ✅ 3.981.312 byte dengan `rk_dma_heap_cma=16M` |
+| **Gambar siap pakai via ISP** | ✅ NV12 dari `rkisp_mainpath`, tajam & tanpa noise kroma |
+| Rekonstruksi warna dari raw di penerima | ❌ belum terpecahkan (lihat Masalah 4) |
 
 Diuji pada Ubuntu 22.04.3 LTS armhf, kernel 5.10.160, board Luckfox Pico Mini B.
 
@@ -222,9 +224,78 @@ Menelusuri lebih jauh berarti membedah tata letak buffer `vb2_cma_sg` di driver 
 
 ### Kesimpulan praktis
 
-Untuk gambar siap pakai, **gunakan ISP, jangan rekonstruksi di penerima**. Demosaic, black
-level per kanal, lens shading, white balance, dan denoise semuanya ada di silikon RV1103 —
-dan ISP membaca tata letak buffer dengan benar karena ia yang mendefinisikannya.
+Untuk gambar siap pakai, **gunakan ISP, jangan rekonstruksi di penerima** — lihat bagian
+berikutnya. Terbukti jauh lebih baik dan jauh lebih sedikit usaha.
+
+---
+
+## Jalur ISP — gambar siap pakai ✅
+
+Ini jawabannya, dan ternyata **jauh lebih mudah dari dugaan**.
+
+### Ada link langsung CIF → ISP
+
+Topologi `media1` menunjukkan jalur langsung yang **sudah aktif**, tanpa perlu mode readback
+lewat memori:
+
+```
+rkisp-isp-subdev pad0 (Sink)  : [fmt:SBGGR10_1X10/2304x1296]
+                                <- "rkcif-mipi-lvds":0 [ENABLED]
+                 pad1 (Sink)  : <- "rkisp-input-params":0 [ENABLED]
+                 pad2 (Source): [fmt:YUYV8_2X8/2304x1296]
+                                -> "rkisp_mainpath":0 [ENABLED]
+```
+
+Keluaran ISP sudah dalam domain **YUV** — demosaic dikerjakan di silikon. Format yang didukung
+`rkisp_mainpath` (`/dev/video11`): UYVY, NV16, NV61, NV21, NV12, NM21, NM12.
+
+### Menangkap
+
+```bash
+sudo sh scripts/capture_isp.sh              # 1280x720 NV12
+sudo sh scripts/capture_isp.sh 2304 1296
+```
+
+Tanpa konfigurasi link manual, tanpa `media-ctl`, tanpa `rkaiq`. Cukup set format dan stream.
+
+![Hasil ISP dengan koreksi white balance](images/sample-isp-1280x720-awb.png)
+
+*Keluaran ISP 1280×720 NV12, dikonversi ke RGB dengan koreksi grey-world. Tajam, tanpa noise
+kroma, detail halus terbaca — bandingkan dengan hasil demosaic manual di atas.*
+
+### Perbandingan langsung
+
+| | Raw CIF + demosaic manual | ISP `mainpath` |
+|---|---|---|
+| Demosaic | di penerima (CPU) | di silikon |
+| Denoise, lens shading, black level | tidak ada | ada |
+| Noise kroma | berat, belum teratasi | **tidak ada** |
+| Ketajaman | baik (luminansi) | baik |
+| Format keluaran | Bayer RAW10 | YUV (NV12 dll) |
+| Ukuran 1280×720 | 1.290.240 byte | 1.382.400 byte |
+| Usaha | tinggi, dan gagal | rendah, dan berhasil |
+
+### Yang masih perlu ditangani manual
+
+Tanpa daemon `rkaiq`, tidak ada 3A otomatis:
+
+- **Eksposur** — atur lewat kontrol subdev sensor (`exposure`, `analogue_gain`)
+- **White balance** — ISP memakai gain default, hasilnya bercast hijau. Statistik kroma pada
+  pengujian: `U rata2 -24.8`, `V rata2 -9.9` (keduanya negatif = bias hijau)
+
+Koreksi WB paling bersih dilakukan **di domain kroma**, bukan dengan mengalikan kanal RGB —
+geser pusat U dan V ke nol, sehingga luma tidak tersentuh:
+
+```python
+u = u - u.mean()
+v = v - v.mean()
+```
+
+Itulah yang dilakukan `nv12_to_ppm.py ... awb`.
+
+> Untuk 3A sungguhan diperlukan `rkaiq` beserta `rockit` — dan itu mengembalikan sepuluh thread
+> state D serta load average ~10 (lihat Masalah 2). Untuk pengambilan gambar sesekali, mengatur
+> eksposur manual dan mengoreksi WB saat konversi jauh lebih murah.
 
 ## Pemakaian
 
