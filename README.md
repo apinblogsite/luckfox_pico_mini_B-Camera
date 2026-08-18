@@ -21,10 +21,10 @@ belum di-demosaic — normal untuk data mentah langsung dari CIF tanpa pemrosesa
 | ISP probe | ✅ berhasil setelah kompaksi memori |
 | Tautan sensor → CIF | ✅ `Async subdev notifier completed` |
 | Format ternegosiasi | ✅ `SBGGR10_1X10/2304x1296` |
-| Tangkap frame 320×240 | ✅ 122.880 byte |
-| Tangkap frame 640×480 | ✅ 491.520 byte |
-| Tangkap frame 1280×720 | ❌ butuh CMA lebih besar |
-| Tangkap frame 2304×1296 | ❌ butuh CMA lebih besar |
+| Tangkap frame 320×240 | ✅ 122.880 byte (CMA bawaan) |
+| Tangkap frame 640×480 | ✅ 491.520 byte (CMA bawaan) |
+| Tangkap frame 1280×720 | ✅ dengan `rk_dma_heap_cma=16M` |
+| Tangkap frame 2304×1296 | ✅ 3.981.312 byte dengan `rk_dma_heap_cma=16M` |
 
 Diuji pada Ubuntu 22.04.3 LTS armhf, kernel 5.10.160, board Luckfox Pico Mini B.
 
@@ -116,12 +116,46 @@ Kebutuhan per frame RAW10:
 | 1280×720 | 1.290.240 | 2.580.480 | ❌ |
 | 2304×1296 | 3.981.312 | 7.962.624 | ❌ |
 
-**Di sinilah menaikkan CMA benar-benar tepat** — berbeda dari kasus probe ISP tadi. Untuk
-resolusi penuh perlu `rk_dma_heap_cma=16M`, dengan konsekuensi `MemTotal` turun ~15 MB.
+**Di sinilah menaikkan CMA benar-benar tepat** — berbeda dari kasus probe ISP tadi.
 
 Caranya ada di repo Wiki, Bagian 12 (`scripts/uboot/patch_bootargs.py`) — `fw_setenv` tidak
 tersedia dan Ctrl+C tidak menginterupsi U-Boot, jadi partisi env ditulis langsung dengan
-CRC32 dihitung ulang.
+CRC32 dihitung ulang:
+
+```bash
+sudo dd if=/dev/mmcblk1p1 of=/tmp/env.bin bs=1k count=32
+sudo python3 patch_bootargs.py /tmp/env.bin /tmp/env16.bin \
+     "rk_dma_heap_cma=1M" "rk_dma_heap_cma=16M"
+sudo dd if=/tmp/env16.bin of=/dev/mmcblk1p1 bs=1k count=32 conv=fsync
+sync && sudo reboot
+```
+
+### Hasil dengan CMA 16 MB
+
+![Frame 2304x1296 dengan CMA 16M](images/sample-2304x1296-cma16m.png)
+
+*Resolusi penuh SC3336. Pratinjau diperkecil 2×; garis Bayer jadi kurang tampak karena
+penyampelan, dan struktur pemandangan terlihat jelas.*
+
+```
+Size Image : 3.981.312 byte
+statistik  : min/max 0/255, rata-rata 62,6, 256 nilai unik
+```
+
+256 nilai unik berarti seluruh rentang dinamis 8-bit terpakai.
+
+### Biaya memori yang terukur
+
+| | CMA 1 MB | CMA 16 MB |
+|---|---:|---:|
+| `MemTotal` | 57.372 kB | 42.012 kB |
+| `MemAvailable` (idle) | ~30.000 kB | ~21.000 kB |
+| Resolusi maksimum | 640×480 | 2304×1296 |
+
+**Kamera dan layanan lain bisa berdampingan.** Diuji dengan mosquitto + publisher telemetri
+berjalan bersamaan pada CMA 16 MB: `MemAvailable` tetap ~21 MB dan semuanya stabil. Jadi
+menaikkan CMA tidak berarti mengorbankan proyek lain di board yang sama — hanya menyempitkan
+ruang gerak.
 
 ---
 
@@ -187,7 +221,8 @@ images/                        contoh hasil tangkapan
 - **Capture dari CIF, bukan ISP.** Data mentah Bayer tanpa demosaic, black level, white balance,
   atau gamma. Untuk gambar siap pakai perlu memakai jalur `rkisp_mainpath` dengan parameter ISP,
   atau demosaic di sisi penerima.
-- **Resolusi terbatas CMA bawaan.** 640×480 tanpa perubahan; resolusi penuh perlu CMA 16 MB.
+- **Resolusi terbatas CMA bawaan.** 640×480 tanpa perubahan; resolusi penuh perlu CMA 16 MB,
+  yang memangkas `MemTotal` dari 57 MB ke 42 MB.
 - **Kompaksi perlu diulang tiap boot.** Skrip menanganinya, tapi kalau modul dimuat sangat telat
   saat sistem sibuk, kompaksi bisa tidak cukup. Solusi yang lebih tuntas: kompilasi driver
   sebagai built-in (`=y`) agar alokasi terjadi saat kernel init.
