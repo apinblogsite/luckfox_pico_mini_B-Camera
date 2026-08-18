@@ -26,6 +26,7 @@ belum di-demosaic — normal untuk data mentah langsung dari CIF tanpa pemrosesa
 | Tangkap frame 1280×720 | ✅ dengan `rk_dma_heap_cma=16M` |
 | Tangkap frame 2304×1296 | ✅ 3.981.312 byte dengan `rk_dma_heap_cma=16M` |
 | **Gambar siap pakai via ISP** | ✅ NV12 dari `rkisp_mainpath`, tajam & tanpa noise kroma |
+| ISP resolusi penuh 2304×1296 | ✅ 4.478.976 byte dengan `rk_dma_heap_cma=16M` |
 | Rekonstruksi warna dari raw di penerima | ❌ belum terpecahkan (lihat Masalah 4) |
 
 Diuji pada Ubuntu 22.04.3 LTS armhf, kernel 5.10.160, board Luckfox Pico Mini B.
@@ -263,6 +264,16 @@ Tanpa konfigurasi link manual, tanpa `media-ctl`, tanpa `rkaiq`. Cukup set forma
 *Keluaran ISP 1280×720 NV12, dikonversi ke RGB dengan koreksi grey-world. Tajam, tanpa noise
 kroma, detail halus terbaca — bandingkan dengan hasil demosaic manual di atas.*
 
+### Resolusi penuh juga berhasil
+
+```
+2304×1296 NV12  ->  4.478.976 byte   (2304 × 1296 × 1,5)
+luma            :   min 17, max 255, rata-rata 89,0
+kroma sebelum WB:   U -22,9   V -9,4
+```
+
+Butuh `rk_dma_heap_cma=16M` seperti jalur raw. Dua buffer NV12 resolusi penuh ≈ 8,5 MB.
+
 ### Perbandingan langsung
 
 | | Raw CIF + demosaic manual | ISP `mainpath` |
@@ -273,6 +284,7 @@ kroma, detail halus terbaca — bandingkan dengan hasil demosaic manual di atas.
 | Ketajaman | baik (luminansi) | baik |
 | Format keluaran | Bayer RAW10 | YUV (NV12 dll) |
 | Ukuran 1280×720 | 1.290.240 byte | 1.382.400 byte |
+| Ukuran 2304×1296 | 3.981.312 byte | 4.478.976 byte |
 | Usaha | tinggi, dan gagal | rendah, dan berhasil |
 
 ### Yang masih perlu ditangani manual
