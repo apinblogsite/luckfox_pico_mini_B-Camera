@@ -266,13 +266,22 @@ kroma, detail halus terbaca — bandingkan dengan hasil demosaic manual di atas.
 
 ### Resolusi penuh juga berhasil
 
+![ISP 2304x1296 NV12 dengan koreksi white balance](images/sample-isp-2304x1296-awb.png)
+
+*Resolusi penuh SC3336 lewat ISP, pratinjau diperkecil 2×. Tekstur dinding, kabel di lantai,
+tepi rak, dan bayangan semuanya terbaca bersih — bandingkan dengan hasil demosaic manual pada
+data mentah di bagian sebelumnya.*
+
 ```
 2304×1296 NV12  ->  4.478.976 byte   (2304 × 1296 × 1,5)
-luma            :   min 17, max 255, rata-rata 89,0
-kroma sebelum WB:   U -22,9   V -9,4
+luma            :   min 17, max 255, rata-rata 95,0
+kroma sebelum WB:   U -25,0   V -10,1
 ```
 
 Butuh `rk_dma_heap_cma=16M` seperti jalur raw. Dua buffer NV12 resolusi penuh ≈ 8,5 MB.
+
+Nilai kroma konsisten antar-pengambilan (`U` sekitar −23…−25, `V` sekitar −9…−10), menandakan
+cast hijau itu berasal dari gain WB default ISP yang tetap — bukan variasi scene.
 
 ### Perbandingan langsung
 
