@@ -159,6 +159,73 @@ ruang gerak.
 
 ---
 
+## Masalah 4 — Warna: kendali eksposur berhasil, rekonstruksi warna belum
+
+Frame mentah dari CIF adalah Bayer tanpa demosaic. Upaya merekonstruksi warna di sisi
+penerima **belum berhasil**, dan ini catatan jujur tentang sejauh mana penelusurannya sampai.
+
+### Eksposur dan gain harus diatur manual
+
+Tanpa `rkaiq`, tidak ada auto-exposure. Sensor memakai default yang sangat gelap:
+
+```
+exposure      : min=1   max=1352   value=128    <- hampir minimum
+analogue_gain : min=128 max=99614  value=128    <- minimum
+```
+
+Subdev sensor adalah yang punya kontrol ini — cari dengan:
+
+```bash
+for d in /dev/v4l-subdev*; do
+  v4l2-ctl -d $d --list-ctrls 2>/dev/null | grep -qi exposure && echo "$d"
+done
+```
+
+Hasil sapuan pada scene dalam ruangan (rata-rata byte dari 400 KB pertama):
+
+| exposure | rata-rata | | gain (exp=1200) | rata-rata |
+|---:|---:|---|---:|---:|
+| 128 | 66,3 | | 128 | 102,5 |
+| 400 | 85,6 | | 256 | 113,1 |
+| 800 | 96,5 | | 512 | 130,9 |
+| 1200 | **101,1** | | 1024 | 158,0 |
+| 1340 | 96,8 | | 2048 | 190,3 |
+
+Eksposur mentok di ~101 pada nilai 1200 lalu turun (melampaui batas frame timing);
+selebihnya harus dari gain. `exposure=1200, analogue_gain=512` memberi eksposur seimbang.
+
+### Yang sudah dieliminasi
+
+- **Pola Bayer salah?** Keempat kemungkinan (BGGR/RGGB/GRBG/GBRG) diuji — semuanya buruk
+  dengan cast berbeda. Kalau sekadar salah pola, satu di antaranya akan wajar.
+- **Demosaic salah?** Diuji dengan data sintetis: delapan bilah warna dimosaic lalu
+  didemosaic, **selisih nol**. Implementasinya benar.
+- **Aliasing pratinjau?** Awalnya memperkecil gambar dengan point sampling — itu memang
+  memperburuk (fase Bayer berulang tiap 2 piksel), tapi setelah diganti rata-rata blok,
+  noise kroma tetap ada.
+- **Eksposur kurang?** Setelah dinaikkan ke rata-rata 131, noise kroma justru makin jelas.
+- **Data rusak?** Pola uji sensor (`test_pattern=1`) menampilkan bilah hitam dan putih
+  sebagai blok seragam yang benar. Bilah berwarna tampil bergaris — itu **wajar** di domain
+  Bayer mentah, karena R/G/B dalam satu bilah punya nilai berbeda.
+
+### Dugaan yang tersisa
+
+Gejalanya khas: **luminansi bagus, kroma hancur**. Grayscale tajam dan detail benar, tapi
+pemisahan per kanal menghasilkan noise. Kalau fase Bayer bergeser antar-baris — misalnya R
+dan B tertukar di baris berselang — luminansi tetap utuh sementara warna rusak total.
+
+Petunjuk pendukung: **byte 2880–2919 tiap baris berisi data terstruktur berulang, bukan
+padding nol**. Jadi asumsi "area aktif = 2880 byte pertama" mungkin tidak tepat, dan offset
+awal tiap baris bisa bergeser terhadap batas grup 5-byte MIPI RAW10.
+
+Menelusuri lebih jauh berarti membedah tata letak buffer `vb2_cma_sg` di driver `rkcif`.
+
+### Kesimpulan praktis
+
+Untuk gambar siap pakai, **gunakan ISP, jangan rekonstruksi di penerima**. Demosaic, black
+level per kanal, lens shading, white balance, dan denoise semuanya ada di silikon RV1103 —
+dan ISP membaca tata letak buffer dengan benar karena ia yang mendefinisikannya.
+
 ## Pemakaian
 
 ### 1. Muat tumpukan kamera
