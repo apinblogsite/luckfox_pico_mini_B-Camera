@@ -462,6 +462,41 @@ timeout 20 rkrun rkaiq_3A_server | head -40     # SALAH
 status `head` yaitu 0. Terlihat persis seperti "rkaiq keluar sendiri dengan sukses", padahal
 harness ujinya sendiri yang membunuhnya.
 
+### Setelah merekam, load average tinggal ~12 sampai reboot
+
+Ini bukan kerusakan, tapi harus Anda ketahui sebelum menaruh board ini di tempat yang sulit
+dijangkau. Begitu `rockit` dimuat, ia menelurkan sepuluh thread kernel yang **tidak pernah
+keluar dari state D**, bahkan setelah perekaman selesai:
+
+```
+$ ps -eL -o pid,stat,comm | awk '$3 ~ /^D/'
+1205 D vlog        1210 D venc
+1206 D valloc      1211 D rkisp-vir0
+1207 D vsys        1212 D vpss
+1208 D vrga_0      1213 D vrgn
+1209 D vrga_1      1214 D vmcu
+
+$ cat /proc/loadavg
+12.75 12.33 11.38 1/98
+```
+
+CPU-nya sendiri **menganggur**. Dua sampel `/proc/stat` berjarak 2 detik menunjukkan kolom
+idle tidak bergerak sementara iowait naik 155 jiffy — thread-thread itu menunggu, bukan
+bekerja. Suhu dan responsivitas board tetap normal.
+
+Konsekuensi praktisnya:
+
+- **Angka load average jadi tidak berguna** sebagai indikator kesehatan selama `rockit`
+  termuat. Kalau Anda memantau lewat telemetri MQTT, `load1` akan terbaca ~12 terus.
+- **`rmmod rockit` menggantung** dan tidak bisa dibatalkan — thread state D tidak dapat
+  diinterupsi. Satu-satunya cara membersihkan adalah **reboot**.
+- Karena itu jangan memuat `rockit` di boot kalau board Anda tidak selalu merekam. Muat saat
+  dibutuhkan, dan reboot setelah selesai.
+
+Ini masalah yang sama dengan Masalah 2 di atas, hanya penyebabnya berbeda: di sana `rockit`
+tersangkut karena ISP gagal probe; di sini ia tersangkut karena memang begitu sifatnya setelah
+dipakai.
+
 ### Pemakaian
 
 ```bash
@@ -566,6 +601,9 @@ images/                        contoh hasil tangkapan dan frame video
 - **`rockit` rapuh terhadap fragmentasi.** Kalau blok orde-4 habis saat dimuat, ia ter-Oops
   dan menyangkutkan seluruh subsistem video sampai reboot. `luckfox-venc-up.sh` memeriksa
   ini lebih dulu dan menolak memuat daripada memicu Oops.
+- **Load average tidak bisa dipercaya selama `rockit` termuat** — tinggal ~12 sampai reboot
+  karena sepuluh thread state D yang tidak pernah keluar, meski CPU menganggur. `rmmod`
+  menggantung; hanya reboot yang membersihkannya.
 
 ## Repo terkait
 
